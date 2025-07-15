@@ -1,0 +1,83 @@
+{
+  "name": "openai-realtime-console",
+  "version": "1.0.0",
+  "description": "OpenAI Realtime Console",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron electron/main.js\"",
+    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && ELECTRON_DEV=true electron electron/main.js\"",
+    "electron-poc": "electron electron/main-poc.js",
+    "electron-pack": "electron-builder",
+    "dist": "npm run build && electron-builder",
+    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --ext js,jsx --fix"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@tailwindcss/typography": "^0.5.16",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "lucide-react": "^0.525.0",
+    "mermaid": "^11.8.1",
+    "openai": "^4.71.0",
+    "postcss-nesting": "^13.0.2",
+    "postcss-preset-env": "^10.2.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-feather": "^2.0.10",
+    "react-markdown": "^10.1.0",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "clipboard-event": "^1.6.0",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react": "^7.37.2",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "nodemon": "^3.1.7",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.14",
+    "vite": "^5.4.10",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.openai.realtime-console",
+    "productName": "OpenAI Realtime Console",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "build/**/*",
+      "node_modules/**/*",
+      "server.js",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

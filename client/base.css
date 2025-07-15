@@ -1,0 +1,110 @@
+/*
+@tailwind base; adds base styles to all elements:
+https://tailwindcss.com/docs/preflight
+*/
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Mermaid diagram styling for better visibility */
+.mermaid-container .mermaid svg {
+  max-width: 100%;
+  height: auto;
+  transition: opacity 0.3s ease-in-out;
+}
+
+.mermaid-container .mermaid .node rect,
+.mermaid-container .mermaid .node circle,
+.mermaid-container .mermaid .node ellipse,
+.mermaid-container .mermaid .node polygon {
+  fill: #ffffff !important;
+  stroke: #000000 !important;
+  stroke-width: 2px !important;
+}
+
+.mermaid-container .mermaid .node .label,
+.mermaid-container .mermaid .nodeLabel,
+.mermaid-container .mermaid text {
+  fill: #000000 !important;
+  font-family: Arial, sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+
+.mermaid-container .mermaid .edgePath path,
+.mermaid-container .mermaid .path {
+  stroke: #000000 !important;
+  stroke-width: 2px !important;
+}
+
+.mermaid-container .mermaid .arrowheadPath {
+  fill: #000000 !important;
+  stroke: #000000 !important;
+}
+
+.mermaid-container .mermaid .edgeLabel {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  font-family: Arial, sans-serif !important;
+  font-size: 12px !important;
+}
+
+/* Specific styling for flowchart decision nodes */
+.mermaid-container .mermaid .node.decision polygon {
+  fill: #e3f2fd !important;
+  stroke: #1976d2 !important;
+}
+
+/* Specific styling for sequence diagrams */
+.mermaid-container .mermaid .actor {
+  fill: #ffffff !important;
+  stroke: #000000 !important;
+}
+
+.mermaid-container .mermaid .actor-line {
+  stroke: #000000 !important;
+}
+
+.mermaid-container .mermaid .messageLine0,
+.mermaid-container .mermaid .messageLine1 {
+  stroke: #000000 !important;
+  stroke-width: 2px !important;
+}
+
+/* Ensure background is white */
+.mermaid-container .mermaid {
+  background-color: #ffffff !important;
+}
+
+/* Smooth transitions for diagram container */
+.mermaid-container {
+  transition: opacity 0.3s ease-in-out;
+}
+
+/* Prevent layout shift during loading */
+.mermaid-container[style*="opacity: 0"] {
+  pointer-events: none;
+}
+
+/* Loading overlay styling */
+.mermaid-loading-overlay {
+  backdrop-filter: blur(1px);
+  transition: opacity 0.2s ease-in-out;
+}
+
+:root {
+  --color-base: #efefef;
+  --color-highlight: #ff80ff;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: "Consolas", "Andale Mono", monospace;
+  font-size: 0.9rem;
+  background-color: var(--color-base);
+}

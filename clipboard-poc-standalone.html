@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clipboard & Key Press POC</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .key-section {
+            background: #e3f2fd;
+            border: 2px solid #2196f3;
+        }
+        .clipboard-section {
+            background: #f3e5f5;
+            border: 2px solid #9c27b0;
+        }
+        .logs {
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .key-logs {
+            background: #001122;
+            color: #00ffff;
+        }
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1976d2;
+        }
+        .status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        .live {
+            background: #4caf50;
+            color: white;
+        }
+        .stopped {
+            background: #f44336;
+            color: white;
+        }
+        .drop-zone {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .drop-zone.dragover {
+            border-color: #2196f3;
+            background: #e3f2fd;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Clipboard & Key Press POC</h1>
+        <p>This is a standalone test for clipboard access and key press detection functionality.</p>
+        
+        <!-- Key Press Detection Section -->
+        <div class="section key-section">
+            <h2>⌨️ Key Press Detection <span class="status live">LIVE</span></h2>
+            <p>Press any key to see detection in real-time:</p>
+            <button onclick="clearKeyLogs()">Clear Key Logs</button>
+            <div id="keyLogs" class="logs key-logs">
+                <div>Press any key to see logs...</div>
+            </div>
+        </div>
+
+        <!-- Clipboard Section -->
+        <div class="section clipboard-section">
+            <h2>📋 Clipboard Detection</h2>
+            <button onclick="startClipboardMonitoring()" id="monitorBtn">Start Monitoring</button>
+            <button onclick="checkClipboard()">Manual Check</button>
+            <button onclick="clearClipboardLogs()">Clear Logs</button>
+            
+            <div class="drop-zone" id="dropZone">
+                📁 Drop files here or copy files to clipboard
+            </div>
+            
+            <div id="clipboardLogs" class="logs">
+                <div>Click 'Start Monitoring' to begin...</div>
+            </div>
+        </div>
+
+        <!-- Instructions -->
+        <div class="section">
+            <h3>📖 Instructions:</h3>
+            <ul>
+                <li><strong>Key Press:</strong> Just start typing - all keys will be detected</li>
+                <li><strong>Special Shortcuts:</strong> Try Ctrl+Shift+V, Ctrl+Shift+F, Ctrl+V</li>
+                <li><strong>Clipboard:</strong> Copy files in Finder/Explorer, then check logs</li>
+                <li><strong>Drag & Drop:</strong> Drag files into the drop zone</li>
+                <li><strong>Global Shortcuts:</strong> Work when this window is focused</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        let keyLogs = [];
+        let clipboardLogs = [];
+        let isMonitoring = false;
+        let monitorInterval = null;
+        let lastClipboardContent = '';
+
+        // Key Press Detection
+        function addKeyLog(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            keyLogs.push(`[${timestamp}] ${message}`);
+            if (keyLogs.length > 50) keyLogs.shift();
+            updateKeyLogsDisplay();
+        }
+
+        function updateKeyLogsDisplay() {
+            const logsDiv = document.getElementById('keyLogs');
+            logsDiv.innerHTML = keyLogs.map(log => `<div>${log}</div>`).join('');
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function clearKeyLogs() {
+            keyLogs = [];
+            updateKeyLogsDisplay();
+        }
+
+        // Clipboard Detection
+        function addClipboardLog(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            clipboardLogs.push(`[${timestamp}] ${message}`);
+            if (clipboardLogs.length > 50) clipboardLogs.shift();
+            updateClipboardLogsDisplay();
+        }
+
+        function updateClipboardLogsDisplay() {
+            const logsDiv = document.getElementById('clipboardLogs');
+            logsDiv.innerHTML = clipboardLogs.map(log => `<div>${log}</div>`).join('');
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function clearClipboardLogs() {
+            clipboardLogs = [];
+            updateClipboardLogsDisplay();
+        }
+
+        async function checkClipboard() {
+            try {
+                if (navigator.clipboard && navigator.clipboard.readText) {
+                    const text = await navigator.clipboard.readText();
+                    if (text !== lastClipboardContent) {
+                        lastClipboardContent = text;
+                        addClipboardLog(`📝 Text: "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"`);
+                    } else {
+                        addClipboardLog('📝 No clipboard changes detected');
+                    }
+                } else {
+                    addClipboardLog('❌ Clipboard API not available in this browser');
+                }
+            } catch (error) {
+                addClipboardLog(`❌ Error: ${error.message}`);
+            }
+        }
+
+        function startClipboardMonitoring() {
+            if (isMonitoring) {
+                // Stop monitoring
+                clearInterval(monitorInterval);
+                isMonitoring = false;
+                document.getElementById('monitorBtn').textContent = 'Start Monitoring';
+                addClipboardLog('🛑 Stopped clipboard monitoring');
+            } else {
+                // Start monitoring
+                isMonitoring = true;
+                document.getElementById('monitorBtn').textContent = 'Stop Monitoring';
+                addClipboardLog('🚀 Started clipboard monitoring');
+                monitorInterval = setInterval(checkClipboard, 2000);
+            }
+        }
+
+        // Key Event Listeners
+        document.addEventListener('keydown', (event) => {
+            const key = event.key;
+            const ctrlKey = event.ctrlKey ? 'Ctrl+' : '';
+            const shiftKey = event.shiftKey ? 'Shift+' : '';
+            const altKey = event.altKey ? 'Alt+' : '';
+            const metaKey = event.metaKey ? 'Cmd+' : '';
+            
+            const fullKey = `${metaKey}${ctrlKey}${shiftKey}${altKey}${key}`;
+            addKeyLog(`🔑 Key pressed: ${fullKey}`);
+            
+            // Special handling for clipboard shortcuts
+            if (event.ctrlKey && event.shiftKey && event.key === 'V') {
+                addKeyLog('🎯 Clipboard shortcut detected! Ctrl+Shift+V');
+                event.preventDefault();
+                checkClipboard();
+            } else if (event.ctrlKey && event.shiftKey && event.key === 'F') {
+                addKeyLog('🎯 File check shortcut detected! Ctrl+Shift+F');
+                event.preventDefault();
+                checkClipboard();
+            } else if (event.ctrlKey && event.key === 'v') {
+                addKeyLog('📋 Standard paste detected! Ctrl+V');
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            const key = event.key;
+            addKeyLog(`🔓 Key released: ${key}`);
+        });
+
+        // Drag and Drop
+        const dropZone = document.getElementById('dropZone');
+        
+        dropZone.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (event) => {
+            event.preventDefault();
+            dropZone.classList.remove('dragover');
+            
+            const files = Array.from(event.dataTransfer.files);
+            addClipboardLog(`📁 Files dropped: ${files.length} files`);
+            
+            files.forEach((file, index) => {
+                addClipboardLog(`   ${index + 1}. ${file.name} (${file.size} bytes)`);
+            });
+        });
+
+        // Electron IPC Integration
+        if (window.electronAPI) {
+            addClipboardLog('🔌 Electron API detected - Enhanced clipboard access available');
+            
+            // Listen for global clipboard detection from Electron
+            window.electronAPI.onGlobalClipboardDetected((data) => {
+                addClipboardLog(`🌍 Global Ctrl+V detected! Source: ${data.source}`);
+                addClipboardLog(`📝 Text: "${data.text ? data.text.substring(0, 100) : '(empty)'}"`);
+                addClipboardLog(`📋 Formats: ${data.formats.join(', ')}`);
+                addClipboardLog(`🖼️ Has Image: ${data.hasImage}`);
+                addClipboardLog(`⏰ Timestamp: ${data.timestamp}`);
+            });
+            
+            // Listen for clipboard files detection
+            window.electronAPI.onClipboardFilesDetected((filePaths) => {
+                addClipboardLog(`📁 Files detected in clipboard: ${filePaths.length} files`);
+                filePaths.forEach((path, index) => {
+                    addClipboardLog(`   ${index + 1}. ${path}`);
+                });
+            });
+            
+            // Listen for clipboard text detection
+            window.electronAPI.onClipboardTextDetected((text) => {
+                addClipboardLog(`📝 Clipboard text detected: "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"`);
+            });
+            
+            // Listen for clipboard check results
+            window.electronAPI.onClipboardCheckResult((result) => {
+                addClipboardLog(`🔍 Clipboard check result:`);
+                addClipboardLog(`   Success: ${result.success}`);
+                addClipboardLog(`   Formats: ${result.formats.join(', ')}`);
+                addClipboardLog(`   Has Files: ${result.hasFiles}`);
+                if (result.hasFiles) {
+                    result.filePaths.forEach((path, index) => {
+                        addClipboardLog(`   File ${index + 1}: ${path}`);
+                    });
+                }
+            });
+        } else {
+            addClipboardLog('⚠️ Running in browser mode - Limited clipboard access');
+        }
+
+        // Initialize
+        addKeyLog('⚡ Key press detection initialized');
+        addClipboardLog('⚡ Clipboard detection initialized');
+        
+        // Focus on the window to ensure key events are captured
+        window.focus();
+    </script>
+</body>
+</html> 
