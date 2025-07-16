@@ -1,6 +1,10 @@
 import { useState, useRef } from "react";
-import { Upload, X, Image as ImageIcon } from "react-feather";
+// Simple icon components using Unicode symbols
+const Upload = ({ className }) => <span className={className}>📤</span>;
+const X = ({ className }) => <span className={className}>✖️</span>;
+const ImageIcon = ({ className }) => <span className={className}>🖼️</span>;
 import Button from "./Button";
+import { compressImage } from "../utils/imageCompression";
 
 /* global FileReader, alert */
 
@@ -46,26 +50,48 @@ export default function ImageUpload({ sendImageMessage, isSessionActive }) {
     });
   };
 
-  const processImage = (file) => {
+  const processImage = async (file) => {
     setIsUploading(true);
-    const reader = new FileReader();
     
-    reader.onload = (e) => {
-      const imageData = e.target.result;
+    try {
+      console.log(`💰 Compressing image before uploading to reduce OpenAI costs...`);
+      const compressed = await compressImage(file);
+      
       const imageInfo = {
         id: crypto.randomUUID(),
         name: file.name,
-        size: file.size,
-        data: imageData,
-        preview: imageData,
+        size: compressed.compressedSize,
+        originalSize: compressed.originalSize,
+        data: compressed.dataUrl,
+        preview: compressed.dataUrl,
         timestamp: new Date().toLocaleTimeString(),
+        compressionRatio: compressed.compressionRatio,
       };
       
       setUploadedImages((prev) => [...prev, imageInfo]);
       setIsUploading(false);
-    };
-    
-    reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Error compressing image:', error);
+      // Fallback to original method if compression fails
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        const imageData = e.target.result;
+        const imageInfo = {
+          id: crypto.randomUUID(),
+          name: file.name,
+          size: file.size,
+          data: imageData,
+          preview: imageData,
+          timestamp: new Date().toLocaleTimeString(),
+        };
+        
+        setUploadedImages((prev) => [...prev, imageInfo]);
+        setIsUploading(false);
+      };
+      
+      reader.readAsDataURL(file);
+    }
   };
 
   const removeImage = (id) => {
@@ -189,7 +215,13 @@ export default function ImageUpload({ sendImageMessage, isSessionActive }) {
                       {image.name}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {(image.size / 1024).toFixed(1)} KB • {image.timestamp}
+                      {(image.size / 1024).toFixed(1)} KB
+                      {image.compressionRatio && (
+                        <span className="text-green-600 ml-1">
+                          (-{image.compressionRatio}%)
+                        </span>
+                      )}
+                      • {image.timestamp}
                     </p>
                     <div className="flex gap-2 mt-2">
                       <Button

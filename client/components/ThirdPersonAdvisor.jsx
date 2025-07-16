@@ -1,5 +1,9 @@
 import { useState } from 'react';
-import { Users, MessageCircle, Settings, Info } from 'react-feather';
+// Simple icon components using Unicode symbols
+const Users = ({ className }) => <span className={className}>👥</span>;
+const MessageCircle = ({ className }) => <span className={className}>💬</span>;
+const Settings = ({ className }) => <span className={className}>⚙️</span>;
+const Info = ({ className }) => <span className={className}>ℹ️</span>;
 
 export default function ThirdPersonAdvisor({ 
   isActive, 

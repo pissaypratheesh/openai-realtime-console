@@ -1,5 +1,9 @@
 import React from 'react';
-import { DollarSign, TrendingUp, Clock, Zap } from 'react-feather';
+// Simple icon components using Unicode symbols
+const DollarSign = ({ className }) => <span className={className}>💵</span>;
+const TrendingUp = ({ className }) => <span className={className}>📈</span>;
+const Clock = ({ className }) => <span className={className}>⏰</span>;
+const Zap = ({ className }) => <span className={className}>⚡</span>;
 import { formatCost } from '../utils/costCalculator';
 
 const CostDisplay = ({ totalCost, sessionCosts, isSessionActive }) => {

@@ -11,6 +11,16 @@ This application now supports running as an Electron desktop app with **true glo
 - **Ctrl+Shift+P** (Cmd+Shift+P on Mac): Pause/Resume voice listening from anywhere
 - **Ctrl+Shift+H** (Cmd+Shift+H on Mac): Show/Hide the application window
 
+## Browser-Only Shortcuts (when browser is focused)
+
+- **Ctrl+R**: Start/Stop session (browser only)
+- **Ctrl+P**: Pause/Resume voice input (browser only)  
+- **Ctrl+V**: Send clipboard content to AI (browser only)
+
+## Global System Shortcuts (work anywhere)
+
+- **Ctrl+S**: Capture screenshot and analyze with AI (global system shortcut)
+
 ## How to Run
 
 ### Development Mode

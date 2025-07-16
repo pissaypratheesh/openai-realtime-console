@@ -1,4 +1,6 @@
-import { ArrowUp, ArrowDown } from "react-feather";
+// Simple icon components using Unicode symbols
+const ArrowUp = ({ className }) => <span className={className}>⬆️</span>;
+const ArrowDown = ({ className }) => <span className={className}>⬇️</span>;
 import { useState } from "react";
 
 function Event({ event, timestamp }) {

@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
-import { ChevronUp, ChevronDown, Monitor } from 'react-feather';
+// Simple icon components using Unicode symbols
+const ChevronUp = ({ className }) => <span className={className}>⬆️</span>;
+const ChevronDown = ({ className }) => <span className={className}>⬇️</span>;
+const Monitor = ({ className }) => <span className={className}>🖥️</span>;
 
 const DebugPanel = ({ events }) => {
   const [isExpanded, setIsExpanded] = useState(false);

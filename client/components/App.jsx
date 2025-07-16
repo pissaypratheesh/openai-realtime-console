@@ -9,10 +9,13 @@ import DebugPanel from "./DebugPanel"; // Import DebugPanel
 import ImageUploadPanel from "./ImageUploadPanel"; // Import ImageUploadPanel
 import { ClipboardFilePOC } from "./ClipboardFilePOC"; // Import ClipboardFilePOC
 import { GlobalClipboardDisplay } from "./GlobalClipboardDisplay"; // Import GlobalClipboardDisplay
+import WebSocketClient from "./WebSocketClient"; // Import WebSocketClient
 import { ConversationAnalyzer } from "../utils/conversationAnalyzer";
 import { calculateRealtimeCost, calculateChatCompletionsCost, aggregateCosts, formatCost } from "../utils/costCalculator";
+import { compressImage } from "../utils/imageCompression";
+import { SYSTEM_PROMPT_IMAGE_ANALYSIS } from "../utils/prompts.js";
 
-/* global setTimeout, clearTimeout, AbortController, alert, requestAnimationFrame, FileReader */
+/* global setTimeout, clearTimeout, AbortController, alert, requestAnimationFrame, FileReader, TextDecoder */
 
 export default function App() {
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -287,22 +290,22 @@ export default function App() {
         }
       }
       
-      // Check for Ctrl+S - Start/Stop session
-      if (event.ctrlKey && event.key.toLowerCase() === 's') {
+      // Check for Ctrl+R - Start/Stop session (changed from Ctrl+S to avoid conflict with global screenshot)
+      if (event.ctrlKey && event.key.toLowerCase() === 'r') {
         event.preventDefault();
         if (isSessionActive) {
-          console.log("🛑 Stopping session via Ctrl+S");
+          console.log("🛑 Stopping session via Ctrl+R");
           stopSession();
         } else {
-          console.log("🚀 Starting session via Ctrl+S");
+          console.log("🚀 Starting session via Ctrl+R");
           startSession();
         }
       }
       
-             // Check for Ctrl+V - Send clipboard content to AI
+             // Check for Ctrl+V - Send clipboard content to AI (works regardless of session status)
        if (event.ctrlKey && event.key.toLowerCase() === 'v') {
          event.preventDefault();
-         if (isSessionActive && currentMode === 'normal') {
+         if (currentMode === 'normal') {
            try {
              console.log("📋 Reading clipboard content via Ctrl+V");
              const clipboardText = await navigator.clipboard.readText();
@@ -322,8 +325,10 @@ export default function App() {
                  },
                ]);
                
-               // Then send to AI
+               // Send clipboard content directly (different from screenshots which need analysis prompt)
                sendTextMessage(clipboardText);
+               
+               console.log(isSessionActive ? "✅ Session active - clipboard sent to AI" : "✅ Session not active but clipboard still sent to AI");
              } else {
                console.log("📋 Clipboard is empty or contains no text");
                alert("Clipboard is empty or contains no text");
@@ -332,10 +337,7 @@ export default function App() {
              console.error("❌ Failed to read clipboard:", error);
              alert("Failed to read clipboard. Make sure you've copied some text first.");
            }
-         } else if (!isSessionActive) {
-           console.log("⚠️ Cannot send clipboard content - session not active");
-           alert("Cannot send clipboard content - start a session first (Ctrl+S)");
-         } else if (currentMode !== 'normal') {
+         } else {
            console.log("⚠️ Cannot send clipboard content - not in normal mode");
            alert("Cannot send clipboard content - switch to normal mode first");
          }
@@ -498,14 +500,97 @@ export default function App() {
       const pc = new RTCPeerConnection();
 
       // Add local audio track for microphone input
-      const ms = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: 24000,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-      });
+      console.log("🎤 Attempting to access microphone...");
+      console.log("📱 User Agent:", navigator.userAgent);
+      console.log("🌐 Protocol:", window.location.protocol);
+      console.log("🔒 isSecureContext:", window.isSecureContext);
+      
+      // Check if getUserMedia is available with multiple fallbacks
+      const hasGetUserMedia = !!(
+        navigator.mediaDevices?.getUserMedia ||
+        navigator.getUserMedia ||
+        navigator.webkitGetUserMedia ||
+        navigator.mozGetUserMedia ||
+        navigator.msGetUserMedia
+      );
+      
+      if (!hasGetUserMedia) {
+        throw new Error("getUserMedia is not supported in this browser. Please use a newer version of Chrome, Firefox, or Safari.");
+      }
+      
+      // For older browsers, create a polyfill
+      if (!navigator.mediaDevices && navigator.getUserMedia) {
+        navigator.mediaDevices = {};
+        navigator.mediaDevices.getUserMedia = function(constraints) {
+          const getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+          if (!getUserMedia) {
+            return Promise.reject(new Error('getUserMedia is not implemented in this browser'));
+          }
+          return new Promise((resolve, reject) => {
+            getUserMedia.call(navigator, constraints, resolve, reject);
+          });
+        };
+      }
+
+      let ms;
+      
+      // Detect Android and adjust accordingly
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      const isChrome = /Chrome/i.test(navigator.userAgent);
+      
+      console.log("📱 Device Detection:", { isAndroid, isChrome });
+      
+      try {
+        // For Android Chrome, try simpler constraints first
+        const audioConstraints = isAndroid ? {
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true
+          }
+        } : {
+          audio: {
+            sampleRate: 24000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        };
+        
+        console.log("🔧 Trying audio constraints:", audioConstraints);
+        
+        ms = await navigator.mediaDevices.getUserMedia(audioConstraints);
+        console.log("✅ Microphone access granted with optimal settings");
+      } catch (error) {
+        console.warn("⚠️ Optimal audio settings failed, trying basic settings:", error);
+        
+        try {
+          // Fallback to basic audio settings
+          ms = await navigator.mediaDevices.getUserMedia({
+            audio: true
+          });
+          console.log("✅ Microphone access granted with basic settings");
+        } catch (fallbackError) {
+          console.error("❌ Microphone access failed completely:", fallbackError);
+          
+          let errorMessage = "Could not access microphone. ";
+          
+          if (fallbackError.name === 'NotAllowedError') {
+            errorMessage += "Please allow microphone access when prompted. ";
+            errorMessage += "On Android: Check browser permissions in Settings > Apps > Chrome > Permissions > Microphone.";
+          } else if (fallbackError.name === 'NotFoundError') {
+            errorMessage += "No microphone found on this device.";
+          } else if (fallbackError.name === 'NotSupportedError') {
+            errorMessage += "Microphone access not supported on this device/browser.";
+          } else if (fallbackError.name === 'SecurityError') {
+            errorMessage += "Microphone access blocked. Try refreshing the page and allowing permissions.";
+          } else {
+            errorMessage += `Error: ${fallbackError.message}`;
+          }
+          
+          throw new Error(errorMessage);
+        }
+      }
       
       // Store the audio stream for pause/resume control
       audioStreamRef.current = ms;
@@ -582,7 +667,21 @@ export default function App() {
       console.log("WebRTC connection established successfully");
     } catch (error) {
       console.error("Error starting session:", error);
-      alert("Failed to start session: " + error.message);
+      
+      let userMessage = "Failed to start session: " + error.message;
+      
+      // Add helpful instructions for mobile users
+      if (error.message.includes("getUserMedia") || error.message.includes("microphone")) {
+        userMessage += "\n\n📱 For Android/Mobile devices over HTTP:\n";
+        userMessage += "• Make sure you're using Chrome or Firefox\n";
+        userMessage += "• Allow microphone permissions when prompted\n";
+        userMessage += "• Check Android Settings > Apps > Chrome > Permissions > Microphone\n";
+        userMessage += "• Try refreshing the page and allowing permissions again\n";
+        userMessage += "• Make sure no other apps are using the microphone";
+      }
+      
+      alert(userMessage);
+      setIsSessionActive(false);
     }
   }
 
@@ -642,31 +741,187 @@ export default function App() {
     }
   }
 
-  // Send a text message to the model
-  function sendTextMessage(message) {
-    const event = {
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: message,
-          },
-        ],
-      },
+  // Send a text message to the model - works with or without active session
+  async function sendTextMessage(message) {
+    console.log("📤 sendTextMessage called with:", message.substring(0, 100) + "...");
+    console.log("🔍 Session status:", { isSessionActive, hasDataChannel: !!dataChannel });
+    
+    // Add user message to conversation first
+    const userMessage = {
+      id: crypto.randomUUID(),
+      type: "user",
+      content: message,
+      timestamp: new Date().toLocaleTimeString(),
+      isVoice: false,
     };
+    
+    setConversations((prev) => [...prev, userMessage]);
 
-    sendClientEvent(event);
-    if (!isGeneratingResponse) {
-      setIsGeneratingResponse(true);
-      sendClientEvent({ 
-        type: "response.create",
-        response: {
-          modalities: ["text"]
+    if (isSessionActive && dataChannel) {
+      // Use Realtime API for session-based communication
+      console.log("📡 Using Realtime API (session active)");
+      
+      const event = {
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: message,
+            },
+          ],
+        },
+      };
+
+      sendClientEvent(event);
+      if (!isGeneratingResponse) {
+        setIsGeneratingResponse(true);
+        sendClientEvent({ 
+          type: "response.create",
+          response: {
+            modalities: ["text"]
+          }
+        });
+      }
+    } else {
+      // Use Chat Completions API for sessionless communication
+      console.log("💬 Using Chat Completions API (no session or session inactive)");
+      
+      try {
+        // Add loading message
+        const loadingMessageId = crypto.randomUUID();
+        setConversations((prev) => [
+          ...prev,
+          {
+            id: loadingMessageId,
+            type: "assistant",
+            content: "Thinking...",
+            timestamp: new Date().toLocaleTimeString(),
+            isVoice: false,
+            isLoading: true,
+          },
+        ]);
+
+        // Use fetch with streaming response
+        const response = await fetch('/api/chat-completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messages: [
+              {
+                role: 'user',
+                content: message
+              }
+            ]
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Chat API error: ${response.status}`);
         }
-      });
+
+        let assistantMessageId = crypto.randomUUID();
+        let streamedContent = '';
+
+        // Remove loading message and add assistant message
+        setConversations((prev) => 
+          prev.filter(msg => msg.id !== loadingMessageId)
+        );
+        
+        setConversations((prev) => [
+          ...prev,
+          {
+            id: assistantMessageId,
+            type: "assistant",
+            content: '',
+            timestamp: new Date().toLocaleTimeString(),
+            isVoice: false,
+            isStreaming: true,
+          },
+        ]);
+
+        // Read the streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+            
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+            
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                
+                if (data.trim() === '') continue;
+                
+                try {
+                  const parsed = JSON.parse(data);
+                  
+                  if (parsed.type === 'chunk' && parsed.content) {
+                    streamedContent += parsed.content;
+                    
+                    // Update the assistant message with new content
+                    setConversations((prev) => 
+                      prev.map(msg => 
+                        msg.id === assistantMessageId 
+                          ? { ...msg, content: streamedContent }
+                          : msg
+                      )
+                    );
+                  } else if (parsed.type === 'done') {
+                    // Mark streaming as complete
+                    setConversations((prev) => 
+                      prev.map(msg => 
+                        msg.id === assistantMessageId 
+                          ? { ...msg, isStreaming: false }
+                          : msg
+                      )
+                    );
+                    console.log("✅ Streaming chat completion finished");
+                    return;
+                  } else if (parsed.type === 'error') {
+                    throw new Error(parsed.error);
+                  }
+                } catch (parseError) {
+                  // Skip malformed JSON
+                  continue;
+                }
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        
+      } catch (error) {
+        console.error("❌ Error with Chat Completions API:", error);
+        
+        // Remove loading message and add error message
+        setConversations((prev) => 
+          prev.filter(msg => !msg.isLoading)
+        );
+        
+        setConversations((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            type: "assistant",
+            content: `Sorry, I encountered an error: ${error.message}. ${!isSessionActive ? 'Try starting a session for realtime communication.' : ''}`,
+            timestamp: new Date().toLocaleTimeString(),
+            isVoice: false,
+            isError: true,
+          },
+        ]);
+      }
     }
   }
 
@@ -731,9 +986,30 @@ Please provide thoughtful advice based on the conversation context above.`;
     }
   }
 
-  // Send an image to the model using Chat Completions API
+  // Handle clipboard content from WebSocket
+  const handleClipboardContent = (content) => {
+    console.log("📋 Clipboard content received from WebSocket:", content);
+    // Notify SessionControls to show the content in text input briefly
+    if (typeof window !== 'undefined' && window.setClipboardTextInput) {
+      window.setClipboardTextInput(content);
+    }
+  };
+
+  // Handle screenshot from WebSocket
+  const handleScreenshot = (screenshotData) => {
+    console.log("📸 Screenshot received from WebSocket:", screenshotData);
+    // This is handled automatically by the WebSocket client when it calls sendImageMessage
+  };
+
+  // Handle keyboard shortcuts from WebSocket
+  const handleKeyboardShortcut = (shortcutData) => {
+    console.log("⌨️ Keyboard shortcut received from WebSocket:", shortcutData);
+    // Can be used for additional logic if needed
+  };
+
+  // Send an image to the model using Chat Completions API - STREAMING VERSION
   async function sendImageMessage(imageData, text = "Please wait, analyze this image") {
-    console.log("📸 Analyzing image with Chat Completions API");
+    console.log("📸 Analyzing image with STREAMING Chat Completions API");
     console.log("🖼️ Image data:", { 
       mediaType: imageData.media_type, 
       dataLength: imageData.data.length 
@@ -743,19 +1019,7 @@ Please provide thoughtful advice based on the conversation context above.`;
     const userMessageId = crypto.randomUUID();
     const loadingMessageId = crypto.randomUUID();
     
-    // System prompt being sent to the API
-    const systemPrompt = `Analyze this image and respond based on category:
-CODING QUESTION: Provide JavaScript solution with:
-
- - Brute force approach (code + time/space complexity)
- - Optimized approach (code + time/space complexity + algorithm explanation)
- - How the optimal algorithm works conceptually
- - Sample input data walkthrough step-by-step
- - Example I/O demonstration
-
-OTHER QUESTION: Answer comprehensively in relevant context
-NO QUESTION: Describe image content + predict next logical step/progression if visible
-Be detailed, technical, and complete in explanations.`;
+    const systemPrompt = SYSTEM_PROMPT_IMAGE_ANALYSIS;
 
     setConversations((prev) => [
       ...prev,
@@ -778,43 +1042,21 @@ Be detailed, technical, and complete in explanations.`;
       {
         id: loadingMessageId,
         type: "assistant",
-        content: "🔍 Analyzing your image... Please wait while I process and understand the content.",
+        content: "🔍 Starting image analysis... Connecting to AI...",
         timestamp: new Date().toLocaleTimeString(),
         hasImage: true,
         isAnalyzing: true,
+        streaming: true,
       },
     ]);
 
-    // Set up timeout handling without aborting the request
-    let hasTimedOut = false;
-    
     try {
       // Get the current conversation history before the new messages
       const currentConversations = conversations.filter(msg => !msg.hasImage); // Exclude previous image messages to avoid token limits
       
-      console.log("🚀 Starting image analysis request...");
-      const timeoutId = setTimeout(() => {
-        console.log("⏰ Request is taking longer than expected...");
-        hasTimedOut = true;
-        
-        // Show timeout message but don't abort - keep waiting for response
-        setConversations((prev) => {
-          const updated = prev.map((msg) => {
-            if (msg.id === loadingMessageId) {
-              return {
-                ...msg,
-                content: "⏰ This is taking longer than expected... Still analyzing your image, please wait.",
-                isAnalyzing: true, // Keep analyzing state
-              };
-            }
-            return msg;
-          });
-          return updated;
-        });
-      }, 30000); // Show timeout message after 30 seconds
+      console.log("🚀 Starting STREAMING image analysis request...");
       
-      // Use Chat Completions API for image analysis since Realtime API doesn't support images
-      // Include conversation history for context continuity
+      // Make a POST request to initiate streaming
       const response = await fetch('/api/analyze-image', {
         method: 'POST',
         headers: {
@@ -825,94 +1067,239 @@ Be detailed, technical, and complete in explanations.`;
           image: `data:${imageData.media_type};base64,${imageData.data}`,
           conversationHistory: currentConversations
         })
-        // No signal - let it run as long as needed
       });
-      
-      clearTimeout(timeoutId);
-      console.log("📡 Received response, status:", response.status, hasTimedOut ? "(after timeout message)" : "");
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
-      console.log("📥 API Response:", result);
+      console.log("📡 Streaming response initiated, processing chunks...");
       
-      // Track cost for this image analysis
-      if (result.cost) {
-        const costInfo = {
-          ...result.cost,
-          timestamp: new Date().toISOString(),
-          type: 'image_analysis'
-        };
-        setSessionCosts(prev => [...prev, costInfo]);
-        setTotalSessionCost(prev => prev + result.cost.totalCost);
-        console.log(`💰 Image analysis cost: ${formatCost(result.cost.totalCost)}`);
-      }
+      // Check if response has streaming headers
+      const isStreaming = response.headers.get('content-type')?.includes('text/event-stream');
+      console.log(`📡 Response type: ${isStreaming ? 'STREAMING (SSE)' : 'REGULAR JSON'}`);
       
-      // Prepare the final content with timing info if needed
-      let finalContent = result.analysis;
-      if (hasTimedOut) {
-        finalContent = `✅ **Analysis Complete** (took longer than expected)\n\n${result.analysis}`;
-        console.log("📝 Response received after timeout message");
-      }
-      
-      // Replace the loading/timeout message with the actual response
-      setConversations((prev) => {
-        console.log("🔄 Updating conversation, looking for loadingMessageId:", loadingMessageId);
-        let foundAndReplaced = false;
+      if (isStreaming) {
+        // Process the streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let streamedContent = '';
+        let finalResult = null;
+        let chunkCount = 0;
         
-        const updated = prev.map((msg) => {
-          if (msg.id === loadingMessageId) {
-            console.log("✅ Found loading message, replacing with:", finalContent);
-            foundAndReplaced = true;
-            return {
-              ...msg,
-              content: finalContent,
-              isAnalyzing: false,
-            };
-          }
-          return msg;
-        });
+        console.log("🔄 Starting to read frontend streaming response...");
         
-        // Fallback: if we couldn't find the loading message, replace the last analyzing message
-        if (!foundAndReplaced) {
-          console.log("⚠️ Loading message not found by ID, looking for last analyzing message");
-          for (let i = updated.length - 1; i >= 0; i--) {
-            if (updated[i].isAnalyzing && updated[i].type === "assistant") {
-              console.log("✅ Found analyzing message at index", i, "replacing with:", finalContent);
-              updated[i] = {
-                ...updated[i],
-                content: finalContent,
-                isAnalyzing: false,
-              };
-              foundAndReplaced = true;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+              console.log(`✅ Frontend streaming completed after ${chunkCount} chunks`);
               break;
+            }
+
+            chunkCount++;
+            console.log(`📦 Frontend received chunk ${chunkCount}, size: ${value?.length || 0} bytes`);
+
+            // Decode the chunk
+            const chunk = decoder.decode(value, { stream: true });
+            buffer += chunk;
+            
+            console.log(`📝 Frontend chunk content preview: "${chunk.substring(0, 100)}${chunk.length > 100 ? '...' : ''}"`);
+
+            // Process complete lines (SSE format)
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+            console.log(`📋 Frontend processing ${lines.length} lines from chunk ${chunkCount}`);
+
+            for (const line of lines) {
+              if (line.trim() === '') continue;
+              
+              console.log(`📄 Frontend processing line: "${line}"`);
+              
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                
+                console.log(`📊 Frontend processing data: "${data}"`);
+                
+                try {
+                  const parsed = JSON.parse(data);
+                  console.log(`🔍 Frontend parsed data:`, parsed);
+                  
+                  const currentEventType = parsed.event || parsed.type;
+                  console.log(`🎯 Frontend current event type: "${currentEventType}"`);
+                  
+                  // Check for streaming content chunks
+                  if (parsed.content && !parsed.analysis) {
+                    // Stream content chunk received
+                    streamedContent += parsed.content;
+                    console.log(`📝 Frontend chunk received: "${parsed.content}"`);
+                    console.log(`📚 Frontend total streamed content so far: ${streamedContent.length} chars`);
+                    
+                    // Update the conversation with the streamed content
+                    setConversations((prev) => {
+                      const updated = prev.map((msg) => {
+                        if (msg.id === loadingMessageId) {
+                          return {
+                            ...msg,
+                            content: streamedContent,
+                            isAnalyzing: false,
+                            streaming: true,
+                            lastUpdated: Date.now(),
+                          };
+                        }
+                        return msg;
+                      });
+                      console.log(`🎨 UI state updated with streaming content: ${streamedContent.length} chars`);
+                      return updated;
+                    });
+                  }
+                  
+                  // Check for completion (has analysis field or event type is complete)
+                  if (parsed.analysis || currentEventType === 'complete') {
+                    console.log("✅ Frontend streaming analysis completed:", parsed);
+                    finalResult = parsed;
+                    
+                    // Track cost for this image analysis
+                    if (parsed.cost) {
+                      const costInfo = {
+                        ...parsed.cost,
+                        timestamp: new Date().toISOString(),
+                        type: 'image_analysis'
+                      };
+                      setSessionCosts(prev => [...prev, costInfo]);
+                      setTotalSessionCost(prev => prev + parsed.cost.totalCost);
+                      console.log(`💰 Image analysis cost: ${formatCost(parsed.cost.totalCost)}`);
+                    }
+                    
+                    // Update the final message with complete analysis
+                    const finalContent = parsed.analysis || streamedContent || "Analysis completed";
+                    console.log(`🏁 Setting final content (${finalContent.length} chars):`, finalContent.substring(0, 200));
+                    
+                    setConversations((prev) => {
+                      const updated = prev.map((msg) => {
+                        if (msg.id === loadingMessageId) {
+                          return {
+                            ...msg,
+                            content: finalContent,
+                            isAnalyzing: false,
+                            streaming: false,
+                          };
+                        }
+                        return msg;
+                      });
+                      console.log(`🎯 Final UI update completed`);
+                      return updated;
+                    });
+                  }
+                  
+                } catch (parseError) {
+                  console.error("❌ Frontend error parsing SSE data:", parseError);
+                  console.error("❌ Frontend raw data that failed to parse:", data);
+                }
+              }
+            }
+          }
+        } catch (streamError) {
+          console.error("❌ Streaming error, falling back to complete response:", streamError);
+          // If streaming fails, show any content we got or try to get the complete response
+          const fallbackContent = streamedContent || "❌ Streaming failed - trying to get complete response...";
+          
+          setConversations((prev) => {
+            return prev.map((msg) => {
+              if (msg.id === loadingMessageId) {
+                return {
+                  ...msg,
+                  content: fallbackContent,
+                  isAnalyzing: false,
+                  streaming: false,
+                  hasError: !streamedContent, // Mark as error only if we have no content
+                };
+              }
+              return msg;
+            });
+          });
+          
+          // If we have no streaming content, try to fallback to regular JSON response
+          if (!streamedContent) {
+            try {
+              console.log("🔄 Attempting fallback to JSON response...");
+              const jsonResponse = await fetch('/api/analyze-image', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  text: text,
+                  image: `data:${imageData.media_type};base64,${imageData.data}`,
+                  conversationHistory: currentConversations,
+                  stream: false // Request non-streaming response
+                })
+              });
+              
+              if (jsonResponse.ok) {
+                const result = await jsonResponse.json();
+                setConversations((prev) => {
+                  return prev.map((msg) => {
+                    if (msg.id === loadingMessageId) {
+                      return {
+                        ...msg,
+                        content: result.analysis || result.message || "Analysis completed",
+                        isAnalyzing: false,
+                        streaming: false,
+                        hasError: false,
+                      };
+                    }
+                    return msg;
+                  });
+                });
+              }
+            } catch (fallbackError) {
+              console.error("❌ Fallback also failed:", fallbackError);
             }
           }
         }
         
-        // Last resort: add as new message if still not found
-        if (!foundAndReplaced) {
-          console.log("⚠️ No analyzing message found, adding as new message");
-          updated.push({
-            id: crypto.randomUUID(),
-            type: "assistant",
-            content: finalContent,
-            timestamp: new Date().toLocaleTimeString(),
-            hasImage: true,
-            isAnalyzing: false,
-          });
+      } else {
+        // Fallback to regular JSON response
+        console.log("📡 Processing as regular JSON response...");
+        const result = await response.json();
+        console.log("✅ Received JSON result:", result);
+        
+        // Track cost for this image analysis
+        if (result.cost) {
+          const costInfo = {
+            ...result.cost,
+            timestamp: new Date().toISOString(),
+            type: 'image_analysis'
+          };
+          setSessionCosts(prev => [...prev, costInfo]);
+          setTotalSessionCost(prev => prev + result.cost.totalCost);
+          console.log(`💰 Image analysis cost: ${formatCost(result.cost.totalCost)}`);
         }
         
-        console.log("📝 Updated conversations:", updated);
-        return updated;
-      });
+        // Update the conversation with the result
+        setConversations((prev) => {
+          return prev.map((msg) => {
+            if (msg.id === loadingMessageId) {
+              return {
+                ...msg,
+                content: result.analysis || result.message || "Analysis completed",
+                isAnalyzing: false,
+                streaming: false,
+              };
+            }
+            return msg;
+          });
+        });
+      }
 
-      console.log("✅ Image analysis completed:", result.analysis);
+      console.log("✅ Image analysis streaming completed successfully");
       
     } catch (error) {
-      console.error("❌ Error analyzing image:", error);
+      console.error("❌ Error in streaming image analysis:", error);
       
       let errorMessage = "Sorry, I encountered an error analyzing the image.";
       
@@ -924,27 +1311,20 @@ Be detailed, technical, and complete in explanations.`;
         errorMessage = `❌ Error: ${error.message}`;
       }
       
-      // Add timing context if error occurred after timeout message
-      if (hasTimedOut) {
-        errorMessage = `❌ **Error occurred after timeout**\n\n${errorMessage}`;
-      }
-      
       // Replace the loading message with error message
       setConversations((prev) => {
-        console.log("🔄 Updating conversation with error, looking for loadingMessageId:", loadingMessageId);
-        const updated = prev.map((msg) => {
+        return prev.map((msg) => {
           if (msg.id === loadingMessageId) {
-            console.log("✅ Found loading message, replacing with error:", errorMessage);
             return {
               ...msg,
               content: errorMessage,
               isAnalyzing: false,
+              streaming: false,
+              hasError: true,
             };
           }
           return msg;
         });
-        console.log("📝 Updated conversations with error:", updated);
-        return updated;
       });
     }
   }
@@ -1412,7 +1792,7 @@ This is a test message with a Mermaid diagram.
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col pt-16 pb-0 overflow-hidden">
         {/* Conversation Display */}
-        <section className="flex-1 px-4 pt-4 pb-20 overflow-y-auto relative" ref={conversationContainerRef} onScroll={handleScroll}>
+        <section className="flex-1 px-4 pt-4 pb-24 overflow-y-auto relative" ref={conversationContainerRef} onScroll={handleScroll}>
           {/* Voice Input Status Indicator */}
           {isSessionActive && isListeningPaused && (
             <div className="mb-4 p-3 rounded-lg border-l-4 border-l-yellow-500 bg-yellow-50">
@@ -1431,16 +1811,19 @@ This is a test message with a Mermaid diagram.
             <div className="flex items-center gap-2">
               <span className="text-gray-600 font-medium">⌨️ Keyboard Shortcuts</span>
               <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-                🌐 Browser Focus Required
+                🌐 Browser vs Global
               </span>
             </div>
             <div className="text-sm text-gray-600 mt-1 space-y-1">
-              <div><kbd className="px-2 py-1 bg-gray-200 rounded text-xs">Ctrl+S</kbd> - Start/Stop session</div>
+              <div className="font-medium text-blue-700">Browser Focus Required:</div>
+              <div><kbd className="px-2 py-1 bg-gray-200 rounded text-xs">Ctrl+R</kbd> - Start/Stop session</div>
               <div><kbd className="px-2 py-1 bg-gray-200 rounded text-xs">Ctrl+P</kbd> - Pause/Resume voice input</div>
-              <div><kbd className="px-2 py-1 bg-gray-200 rounded text-xs">Ctrl+V</kbd> - Send clipboard content to AI (normal mode only)</div>
+              <div><kbd className="px-2 py-1 bg-gray-200 rounded text-xs">Ctrl+V</kbd> - Send clipboard content to AI (works without session)</div>
+              <div className="font-medium text-green-700 mt-2">Global (Works Anywhere):</div>
+              <div><kbd className="px-2 py-1 bg-green-200 rounded text-xs">Ctrl+S</kbd> - Capture screenshot & analyze with AI</div>
             </div>
             <div className="text-xs text-gray-500 mt-2">
-              💡 Make sure the browser window is focused when using these shortcuts
+              💡 Browser shortcuts need browser focus. Global shortcuts work from any application.
             </div>
           </div>
 
@@ -1507,7 +1890,19 @@ This is a test message with a Mermaid diagram.
                 Start a conversation by speaking or uploading an image...
               </div>
             ) : (
-              conversations.map((msg) => (
+              conversations.map((msg) => {
+                // Debug: log streaming messages
+                if (msg.streaming) {
+                  console.log(`🎯 Rendering streaming message:`, {
+                    id: msg.id,
+                    type: msg.type,
+                    contentLength: msg.content?.length,
+                    streaming: msg.streaming,
+                    isAnalyzing: msg.isAnalyzing,
+                    lastUpdated: msg.lastUpdated
+                  });
+                }
+                return (
                 <div
                   key={msg.id}
                   className={`p-4 rounded-lg max-w-[80%] ${
@@ -1561,7 +1956,10 @@ This is a test message with a Mermaid diagram.
                     </div>
                   </div>
                   {msg.type === "assistant" ? (
-                    <MarkdownMessage content={msg.content} isStreaming={msg.streaming} />
+                    <MarkdownMessage 
+                      content={msg.content} 
+                      isStreaming={msg.streaming} 
+                    />
                   ) : msg.type === "system" ? (
                     <div className="text-sm text-gray-700 font-mono bg-gray-50 p-3 rounded border-l-4 border-yellow-400">
                       <div className="font-semibold text-yellow-700 mb-2">📋 Instructions being sent to AI:</div>
@@ -1606,9 +2004,10 @@ This is a test message with a Mermaid diagram.
                     </div>
                   )}
                 </div>
-              ))
+              );
+              })
             )}
-            <div className="h-20" /> {/* Add some padding at the bottom for floating elements */}
+            <div className="h-20" /> {/* Add extra padding at the bottom for floating elements */}
           </div>
           
 
@@ -1619,7 +2018,7 @@ This is a test message with a Mermaid diagram.
       {isSessionActive && (
         <button
           onClick={toggleListeningPause}
-          className={`fixed top-20 right-4 z-50 p-3 rounded-full shadow-lg transition-all duration-200 flex items-center gap-2 text-white font-medium ${
+          className={`fixed top-36 right-4 z-30 p-3 rounded-full shadow-lg transition-all duration-200 flex items-center gap-2 text-white font-medium ${
             isListeningPaused 
               ? 'bg-yellow-500 hover:bg-yellow-600' 
               : 'bg-gray-600 hover:bg-gray-700'
@@ -1650,13 +2049,13 @@ This is a test message with a Mermaid diagram.
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = 'image/*';
-            input.onchange = (e) => {
+            input.onchange = async (e) => {
               const file = e.target.files[0];
               if (file) {
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                  const imageData = event.target.result;
-                  const [header, base64Data] = imageData.split(',');
+                try {
+                  console.log(`💰 Compressing image before sending to reduce OpenAI costs...`);
+                  const compressed = await compressImage(file);
+                  const [header, base64Data] = compressed.dataUrl.split(',');
                   const mediaType = header.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
                   
                   sendImageMessage(
@@ -1668,14 +2067,33 @@ This is a test message with a Mermaid diagram.
                     },
                     `Please analyze this image: ${file.name}`
                   );
-                };
-                reader.readAsDataURL(file);
+                } catch (error) {
+                  console.error('Error compressing image:', error);
+                  // Fallback to original method if compression fails
+                  const reader = new FileReader();
+                  reader.onload = (event) => {
+                    const imageData = event.target.result;
+                    const [header, base64Data] = imageData.split(',');
+                    const mediaType = header.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
+                    
+                    sendImageMessage(
+                      {
+                        type: 'base64',
+                        media_type: mediaType,
+                        data: base64Data,
+                        fileName: file.name,
+                      },
+                      `Please analyze this image: ${file.name}`
+                    );
+                  };
+                  reader.readAsDataURL(file);
+                }
               }
             };
             input.click();
           }}
-          className={`fixed z-50 p-3 rounded-full shadow-lg transition-all duration-200 flex items-center gap-2 text-white font-medium bg-teal-500 hover:bg-teal-600 ${
-            isSessionActive ? 'top-36 right-4' : 'top-20 right-4'
+          className={`fixed z-20 p-3 rounded-full shadow-lg transition-all duration-200 flex items-center gap-2 text-white font-medium bg-teal-500 hover:bg-teal-600 ${
+            isSessionActive ? 'top-20 right-20' : 'top-20 right-4'
           }`}
           title="Upload Image for Analysis"
         >
@@ -1707,6 +2125,16 @@ This is a test message with a Mermaid diagram.
         toggleInterviewMode={toggleInterviewMode}
         isThirdPersonAdvisorMode={isThirdPersonAdvisorMode}
         toggleThirdPersonAdvisorMode={toggleThirdPersonAdvisorMode}
+      />
+
+      {/* WebSocket Client Panel */}
+      <WebSocketClient
+        onClipboardContent={handleClipboardContent}
+        onScreenshot={handleScreenshot}
+        onKeyboardShortcut={handleKeyboardShortcut}
+        sendTextMessage={sendTextMessage}
+        sendImageMessage={sendImageMessage}
+        isSessionActive={isSessionActive}
       />
 
       {/* Global Clipboard Display - shows when Ctrl+V is pressed anywhere */}

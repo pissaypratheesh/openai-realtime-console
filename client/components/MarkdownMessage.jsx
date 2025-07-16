@@ -5,6 +5,7 @@ import rehypeRaw from 'rehype-raw';
 import MermaidDiagram from './MermaidDiagram';
 
 const MarkdownMessage = React.memo(({ content, className = "", isStreaming = false }) => {
+  console.log(`🔄 MarkdownMessage rendering with content length: ${content?.length}, isStreaming: ${isStreaming}`);
   return (
     <div className={`prose prose-lg max-w-none ${className}`}>
       <ReactMarkdown
@@ -167,6 +168,23 @@ const MarkdownMessage = React.memo(({ content, className = "", isStreaming = fal
       </ReactMarkdown>
     </div>
   );
+}, (prevProps, nextProps) => {
+  // Custom comparison function - re-render if content or streaming status changes
+  const contentChanged = prevProps.content !== nextProps.content;
+  const streamingChanged = prevProps.isStreaming !== nextProps.isStreaming;
+  const classNameChanged = prevProps.className !== nextProps.className;
+  
+  console.log(`🔍 MarkdownMessage memo comparison:`, {
+    contentChanged,
+    streamingChanged,
+    classNameChanged,
+    prevContentLength: prevProps.content?.length,
+    nextContentLength: nextProps.content?.length,
+    shouldUpdate: contentChanged || streamingChanged || classNameChanged
+  });
+  
+  // Return true if props are equal (should NOT re-render), false if different (should re-render)
+  return !contentChanged && !streamingChanged && !classNameChanged;
 });
 
 // Add display name for debugging

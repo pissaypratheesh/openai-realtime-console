@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Image, X } from "react-feather"; // Import X icon for close button
+// Simple icon components using Unicode symbols
+const Image = ({ className }) => <span className={className}>🖼️</span>;
+const X = ({ className }) => <span className={className}>✖️</span>;
+import { compressImage } from "../utils/imageCompression";
 
 /* global setTimeout, alert, FileReader */
 
@@ -23,15 +26,21 @@ export default function ImageUploadPanel({ isSessionActive, sendImageMessage }) 
     if (!file) return;
 
     setImageUploadStatus('processing');
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64String = reader.result;
-      const mediaType = file.type; // e.g., "image/png"
-      setUploadedImagePreview(base64String); // Set image preview
+    
+    try {
+      console.log(`💰 Compressing image before sending to reduce OpenAI costs...`);
+      const compressed = await compressImage(file);
+      const [header, base64Data] = compressed.dataUrl.split(',');
+      const mediaType = header.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
+      setUploadedImagePreview(compressed.dataUrl); // Set compressed image preview
 
       try {
         setImageUploadStatus('analyzing');
-        await sendImageMessage({ media_type: mediaType, data: base64String.split(',')[1] });
+        await sendImageMessage({ 
+          media_type: mediaType, 
+          data: base64Data,
+          fileName: file.name
+        });
         setImageUploadStatus('success');
         setTimeout(() => {
           setImageUploadStatus('idle');
@@ -46,8 +55,39 @@ export default function ImageUploadPanel({ isSessionActive, sendImageMessage }) 
         }, 5000);
         alert("Failed to upload image. Please try again.");
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (compressionError) {
+      console.error('Error compressing image:', compressionError);
+      // Fallback to original method if compression fails
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64String = reader.result;
+        const mediaType = file.type; // e.g., "image/png"
+        setUploadedImagePreview(base64String); // Set image preview
+
+        try {
+          setImageUploadStatus('analyzing');
+          await sendImageMessage({ 
+            media_type: mediaType, 
+            data: base64String.split(',')[1],
+            fileName: file.name
+          });
+          setImageUploadStatus('success');
+          setTimeout(() => {
+            setImageUploadStatus('idle');
+            // Do NOT clear preview after success, keep it for potential modal view
+          }, 3000); // Reset status after 3 seconds, but keep image preview
+        } catch (error) {
+          console.error("Error sending image message:", error);
+          setImageUploadStatus('error');
+          setTimeout(() => {
+            setImageUploadStatus('idle');
+            setUploadedImagePreview(null); // Clear preview on error
+          }, 5000);
+          alert("Failed to upload image. Please try again.");
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const getStatusMessage = () => {
